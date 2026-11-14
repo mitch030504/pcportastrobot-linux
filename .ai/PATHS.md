@@ -14,6 +14,7 @@
 | `Tools/fsr4/` | FSR4 provider build/staging instructions |
 | `AstroHybrid.App.Avalonia/` | Linux launcher |
 | `Docs/LINUX.md` | Linux build, layout, audio, troubleshooting |
+| `Docs/REVERSE-ENGINEERING.md` | RE stack: REA 6.9 + Ghidra 12.2, r2ghidra, Ghidra GUI MCP caveats |
 | `Game/PPSA21567-app/` | Extracted game dump (ignored, do not commit) |
 | `Build/` | All build trees/runtimes (ignored) |
 | `Logs/` | Run logs/screenshots (ignored) |
@@ -42,6 +43,14 @@
 - Assets: `$SDK/linux/build/assets` (1,778 SPIR-V modules, model banks; 114 MB)
 - Source port docs: `$SDK/linux/README.md`, `$SDK/PLAN-FSR4-LINUX.md`
 - Upstream implementation: https://github.com/Astyyyyy/fsr4-vk (GPL-3.0)
+
+## Reverse engineering
+
+- Ghidra 12.2: `/opt/ghidra` (REA provider; `GHIDRA_INSTALL_DIR=/opt/ghidra`).
+- REA: `rea-agents@6.9.0`; MCP config `~/.config/opencode/opencode.jsonc`.
+- radare2 + r2ghidra: `r2 -q -c 's 0xADDR; af; pdg' Build/elf-input/eboot.elf`.
+- Ghidra GUI MCP: client on `127.0.0.1:18080`; plugin port must match (Steam owns 8080).
+- Address mapping: original eboot VA = file offset - 0x4000; relinked `AstroBot` VA = file offset + 0x3FC000.
 
 ## Upstream PRs
 

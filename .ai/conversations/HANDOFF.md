@@ -12,6 +12,20 @@ Next agent: read `.ai/PROJECT.md`, `.ai/PATHS.md`, `.ai/PLAN.md` first.
 - Local Kyty tree: branch `fsr4-wip`, commit `4f499e0e`; FSR4 patch is
   `Source/fsr4-wip/0001-wip-fsr4-hook.patch`.
 
+## RE tooling (2026-11-14)
+
+- REA upgraded `6.1.0` -> `6.9.0`; it now accepts the installed Ghidra **12.2**
+  (`/opt/ghidra`). `rea doctor` is healthy for the Ghidra provider.
+- r2ghidra installed (`r2pm -ci r2ghidra`): `pdg` gives Ghidra C per function
+  without a full import. This is the fastest path for the 247 MB eboot.
+- Ghidra GUI MCP: Steam owns `127.0.0.1:8080`, so the client URL is now
+  `http://127.0.0.1:18080/`; set the plugin's Tool Option port to 18080. The
+  latest GhidraMCP release targets Ghidra 12.1.4, so 12.2 needs a source build.
+- Details and commands: `Docs/REVERSE-ENGINEERING.md`.
+- Config files changed outside the repo (backups `*.bak-20261114`):
+  `~/.config/opencode/opencode.json[c]`, `~/.claude.json`,
+  `~/.gemini/config/mcp_config.json`. Restart clients to pick them up.
+
 ## Current state
 
 The **working Linux native port** is on `linux-port`/`main` at `19b21e6`. It
