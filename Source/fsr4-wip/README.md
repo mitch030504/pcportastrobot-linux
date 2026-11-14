@@ -145,6 +145,33 @@ address + call site) and clamp there.
 
 The game binary was restored clean after the tests.
 
+## A4: scene-target instrumentation (2026-11-14 15:40)
+
+`ASTROHYBRID_TARGET_LOG=1` (textureCache) logs every newly created image at
+least 1280x720 with its extent, format, guest backing address/size, and host
+backtrace (2000 entries). The per-second FSR4 line now includes the upscale
+pass's color backing address.
+
+At the Crash Site the final upscale pass's color target is
+`R16G16B16A16Sfloat`, matching the log exactly:
+
+- `2432x1368`, `addr=0x53e020000`, `size=0x1a20000`
+- `3328x1872`, `addr=0x51c630000`, `size=0x30c0000`
+
+Clamp points found:
+
+- `src/graphics/host_gpu/renderer/colorRenderTarget.cpp:560` builds the target
+  `desc.info.extent = {width, height, depth}` from the guest RT descriptor.
+- The depth target follows the same path (`DepthRenderTarget`).
+- The viewport and scissor come from the guest in
+  `renderDraw.cpp` (`SetGraphicsDynamicParams`, guest `xscale`/`yscale`), so
+  shrinking only the image would crop the scene.
+
+Next (A4b): add a fixed target scale (1920x1080), scale the color/depth extent
+and the guest viewport/scissor by the same ratio, and override the final pass's
+`in_w`/`in_h`, jitter and motion-vector scale in the FSR4 hook to the actual
+image extent. Then re-check the dispatch size and FPS.
+
 ## Env switches
 
 - `ASTROHYBRID_FSR4=1` — enable the hook.

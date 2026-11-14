@@ -69,8 +69,14 @@ tutorial; two defects found during gameplay validation were fixed:
   (`0x739df16`, level 0 = 1920) all leave the upscale pass at 2432/3328.
   The render-target size is set outside this path (Agc descriptor/renderer
   config).
-- **Option A4:** instrument Kyty's scene-target creation (guest resource
-  descriptor extent + call site) and clamp the size there, then re-check FSR4.
+- **Option A4** instrumentation done (2026-11-14 15:40): the final pass color
+  target is `R16G16B16A16Sfloat` at `2432x1368` (`addr=0x53e020000`) or
+  `3328x1872` (`addr=0x51c630000`). Creation path `colorRenderTarget.cpp:560`;
+  viewport/scissor from `renderDraw.cpp` (`SetGraphicsDynamicParams`).
+  Instrumentation: `ASTROHYBRID_TARGET_LOG=1`.
+- **Option A4b:** add a fixed 1920x1080 clamp: scale target extent and guest
+  viewport/scissor by the same ratio, override the final pass `in_w`/`in_h`,
+  jitter and MV scale in the FSR4 hook, then measure.
 - **Option B:** keep FSR4 as an off-by-default experiment, document the neutral
   result, and leave it out of the Linux PR. (Current default.)
 

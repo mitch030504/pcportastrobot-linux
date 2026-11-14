@@ -1,4 +1,4 @@
-From 6d99c858fc6fb5f52194235b4851903c7b6618c5 Mon Sep 17 00:00:00 2001
+From e90c58523db797d6a38fed175230ccb991b0bb39 Mon Sep 17 00:00:00 2001
 From: DieMitchell <mitchell030504@gmail.com>
 Date: Sat, 14 Nov 2026 02:24:53 +0100
 Subject: [PATCH] wip(fsr4): hook FSR 4.1.2 into the temporal upscale pass
@@ -9,14 +9,15 @@ Subject: [PATCH] wip(fsr4): hook FSR 4.1.2 into the temporal upscale pass
  src/fsr4/include/ffx_api_types.h              | 257 +++++++++
  src/fsr4/include/ffx_upscale.h                | 230 ++++++++
  src/fsr4/include/vk/ffx_api_vk.h              | 308 +++++++++++
+ .../host_gpu/renderer/cache/textureCache.cpp  |  29 +
  src/graphics/host_gpu/renderer/dlss.cpp       |  12 +-
  .../host_gpu/renderer/eopTimestamps.cpp       |  31 ++
- src/graphics/host_gpu/renderer/fsr4.cpp       | 498 ++++++++++++++++++
+ src/graphics/host_gpu/renderer/fsr4.cpp       | 500 ++++++++++++++++++
  src/graphics/host_gpu/renderer/fsr4.h         |  17 +
  src/graphics/host_gpu/renderer/render.h       |   5 +
  src/graphics/host_gpu/renderer/renderDraw.cpp |  15 +-
  .../presentation/window/vulkanWindow.cpp      |  39 ++
- 12 files changed, 1622 insertions(+), 4 deletions(-)
+ 13 files changed, 1653 insertions(+), 4 deletions(-)
  create mode 100644 src/fsr4/include/ffx_api.h
  create mode 100644 src/fsr4/include/ffx_api_types.h
  create mode 100644 src/fsr4/include/ffx_upscale.h
@@ -1068,6 +1069,53 @@ index 00000000..1bbe1d9e
 +}
 +
 +#endif
+diff --git a/src/graphics/host_gpu/renderer/cache/textureCache.cpp b/src/graphics/host_gpu/renderer/cache/textureCache.cpp
+index aa95affc..53e4cf9f 100644
+--- a/src/graphics/host_gpu/renderer/cache/textureCache.cpp
++++ b/src/graphics/host_gpu/renderer/cache/textureCache.cpp
+@@ -48,6 +48,9 @@
+ #include <memory>
+ #include <mutex>
+ #include <span>
++#if !defined(_WIN32)
++#include <execinfo.h>
++#endif
+ #include <string>
+ #include <tuple>
+ #include <unordered_map>
+@@ -740,6 +743,32 @@ bool TextureCache::SafeToSyncIntoBuffer(const Image& image) {
+ 
+ ImageId TextureCache::InsertImage(const ImageInfo& info, uint32_t resident_first,
+                                   uint64_t resident_prefix) {
++#if !defined(_WIN32)
++	// ASTROHYBRID_TARGET_LOG=1: list newly created large images with their guest backing and
++	// host/guest call chain. Used to find the scene render target's creation path.
++	static const bool target_log = [] {
++		const char* value = std::getenv("ASTROHYBRID_TARGET_LOG");
++		return value != nullptr && value[0] != '\0';
++	}();
++	if (target_log && info.extent.width >= 1280 && info.extent.height >= 720) {
++		static uint32_t logged = 0;
++		if (logged < 2000) {
++			++logged;
++			void*     frames[12];
++			const int count = backtrace(frames, 12);
++			std::printf("TARGET: %ux%u fmt=%s depth=%d type=%d samples=%u addr=0x%llx size=0x%llx\n",
++			            info.extent.width, info.extent.height,
++			            vk::to_string(info.pixel_format).c_str(), info.IsDepth() ? 1 : 0,
++			            static_cast<int>(info.type), info.samples,
++			            static_cast<unsigned long long>(info.data.address),
++			            static_cast<unsigned long long>(info.data.size));
++			for (int i = 0; i < count; ++i) {
++				std::printf("  #%d %p\n", i, frames[i]);
++			}
++			std::fflush(stdout);
++		}
++	}
++#endif
+ 	if (resident_first != 0 && resident_prefix == 0) {
+ 		resident_prefix = ResidentPrefixSize(info, resident_first);
+ 	}
 diff --git a/src/graphics/host_gpu/renderer/dlss.cpp b/src/graphics/host_gpu/renderer/dlss.cpp
 index 8e956181..b8e5d951 100644
 --- a/src/graphics/host_gpu/renderer/dlss.cpp
@@ -1161,10 +1209,10 @@ index 3b140f69..fd151eff 100644
  }
 diff --git a/src/graphics/host_gpu/renderer/fsr4.cpp b/src/graphics/host_gpu/renderer/fsr4.cpp
 new file mode 100644
-index 00000000..ec85c6b7
+index 00000000..2579013a
 --- /dev/null
 +++ b/src/graphics/host_gpu/renderer/fsr4.cpp
-@@ -0,0 +1,498 @@
+@@ -0,0 +1,500 @@
 +// Native FSR 4.1.2 through the FidelityFX SDK Vulkan provider.
 +//
 +// The provider is an optional, externally built GPL-3.0 library (the local
@@ -1632,8 +1680,10 @@ index 00000000..ec85c6b7
 +	if (const auto now = std::chrono::steady_clock::now();
 +	    now - rate_start >= std::chrono::seconds(1)) {
 +		const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - rate_start).count();
-+		std::printf("FSR4: dispatched %u time(s) in %lld ms (frame=%u %ux%u -> %ux%u)\n",
-+		            dispatched, static_cast<long long>(elapsed), frame, in_w, in_h, out_w, out_h);
++		std::printf("FSR4: dispatched %u time(s) in %lld ms (frame=%u %ux%u -> %ux%u color=0x%llx/0x%llx)\n",
++		            dispatched, static_cast<long long>(elapsed), frame, in_w, in_h, out_w, out_h,
++		            static_cast<unsigned long long>(color.info.data.address),
++		            static_cast<unsigned long long>(color.info.data.size));
 +		std::fflush(stdout);
 +		dispatched = 0;
 +		rate_start = now;
