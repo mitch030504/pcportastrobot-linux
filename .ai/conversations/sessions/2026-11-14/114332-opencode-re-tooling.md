@@ -36,3 +36,16 @@
   project/snapshot.
 - Config changes need an OpenCode/Claude/Gemini restart to be picked up; the
   REA 6.9 MCP server in this session reloaded live.
+
+## GhidraMCP extension (follow-up)
+
+- Built the extension from source against Ghidra 12.2:
+  `GHIDRA_INSTALL_DIR=/opt/ghidra /opt/ghidra/support/gradle/gradlew -PGHIDRA_INSTALL_DIR=/opt/ghidra`.
+- Changed the plugin default port from 8080 to **18080** in the source before
+  building (Steam owns 8080).
+- Installed
+  `ghidra_12.2_DEV_20261114_GhidraMCP.zip` in
+  `~/.config/ghidra/ghidra_12.2_DEV/Extensions/Ghidra/`.
+- Next: restart Ghidra, enable `GhidraMCPPlugin` under
+  `File -> Configure -> Developer`; the backend should listen on 18080 and the
+  MCP client's `get_program_info` should work.

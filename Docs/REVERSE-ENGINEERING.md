@@ -47,18 +47,21 @@ r2 -q -c 'afl~main' <binary>
 - The original eboot is the better target for Ghidra/r2 analysis; the relinked
   binary is for patches and runtime addresses.
 
-## Ghidra GUI MCP caveats
+## Ghidra GUI MCP (built for 12.2)
 
-- Steam's `steamwebhelper` owns `127.0.0.1:8080`; the GhidraMCP client used to
-  point there and received Steam's 404. The client URL is now
-  `http://127.0.0.1:18080/`.
-- Set the plugin port to match: Ghidra -> `Edit` -> `Tool Options` ->
-  `GhidraMCP HTTP Server` -> `Server Port` = `18080`, then restart Ghidra.
-- The latest GhidraMCP release targets Ghidra **12.1.4**; the system Ghidra is
-  **12.2**. For 12.2, build the extension from source against `/opt/ghidra`, or
-  use REA/r2 instead. Do not expect the 12.1.4 release zip to load in 12.2.
-- If the GUI MCP is not needed, leave it configured but idle; REA and r2 cover
-  headless work.
+- Built from source against `/opt/ghidra` 12.2; the zip is installed at
+  `~/.config/ghidra/ghidra_12.2_DEV/Extensions/Ghidra/ghidra_12.2_DEV_20261114_GhidraMCP.zip`.
+- The plugin's default port was changed to **18080** in the source build,
+  matching the client URL. Steam's `steamwebhelper` owns 8080, so never use it.
+- Start Ghidra, then `File` -> `Configure` -> `Developer` and enable
+  `GhidraMCPPlugin`. The backend listens on `127.0.0.1:18080`; the MCP client's
+  `get_program_info` should then return the open program.
+- If an older Tool Options value exists, set
+  `Edit` -> `Tool Options` -> `GhidraMCP HTTP Server` -> `Server Port` to 18080
+  and reload the plugin (or restart Ghidra).
+- The stock GhidraMCP release targets Ghidra 12.1.4; the source build is what
+  makes 12.2 work. The GUI extension is only needed for interactive work; REA
+  and r2ghidra cover headless queries.
 
 ## Config changes made (2026-11-14)
 
@@ -70,6 +73,9 @@ r2 -q -c 'afl~main' <binary>
 - `~/.claude.json`, `~/.gemini/config/mcp_config.json`: REA registration
   `6.1.0` -> `6.9.0` (backups: `*.bak-20261114`).
 - `r2pm -ci r2ghidra` installed the Ghidra decompiler plugin for radare2.
+- Built the GhidraMCP extension from source against Ghidra 12.2 (default port
+  18080) and installed it in
+  `~/.config/ghidra/ghidra_12.2_DEV/Extensions/Ghidra/`.
 
 MCP client config changes take effect after the client (OpenCode/Claude/Gemini)
 is restarted. The REA 6.9 server used for this session was loaded live.

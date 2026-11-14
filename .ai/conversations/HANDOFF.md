@@ -18,9 +18,13 @@ Next agent: read `.ai/PROJECT.md`, `.ai/PATHS.md`, `.ai/PLAN.md` first.
   (`/opt/ghidra`). `rea doctor` is healthy for the Ghidra provider.
 - r2ghidra installed (`r2pm -ci r2ghidra`): `pdg` gives Ghidra C per function
   without a full import. This is the fastest path for the 247 MB eboot.
-- Ghidra GUI MCP: Steam owns `127.0.0.1:8080`, so the client URL is now
-  `http://127.0.0.1:18080/`; set the plugin's Tool Option port to 18080. The
-  latest GhidraMCP release targets Ghidra 12.1.4, so 12.2 needs a source build.
+- Ghidra GUI MCP: Steam owns `127.0.0.1:8080`, so the client URL is
+  `http://127.0.0.1:18080/`. The GhidraMCP extension was **built from source
+  against 12.2** and installed in
+  `~/.config/ghidra/ghidra_12.2_DEV/Extensions/Ghidra/` with default port 18080.
+  Restart Ghidra and enable `GhidraMCPPlugin` under
+  `File -> Configure -> Developer`; if an old Tool Option port exists, set it to
+  18080.
 - Details and commands: `Docs/REVERSE-ENGINEERING.md`.
 - Config files changed outside the repo (backups `*.bak-20261114`):
   `~/.config/opencode/opencode.json[c]`, `~/.claude.json`,
