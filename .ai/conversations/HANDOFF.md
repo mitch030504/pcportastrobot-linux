@@ -45,14 +45,15 @@ tutorial; two defects found during gameplay validation were fixed:
 
 ## Decision pending
 
-- **Option A** was attempted (2026-11-14 10:36): the Windows `fixed_1080p`
-  controller patch, forcing both controller fields (+0x0c index, +0x28 level),
-  and forcing the level→size table index all leave the final pass at
-  `3328x1872 -> 3840x2160`. The dynamic-resolution level drives an **earlier**
-  stage of the game's staged upscale chain, not the final pass.
-- **Option A2:** replace the first upscale stage (`1920x1080 -> 2432x1368`) or
-  feed the 1080 scene image into the final pass, so FSR4 gets a 2x+ input. This
-  is a renderer change beyond the current hook.
+- **Option A / A2** attempted (2026-11-14 11:00). Chain logging shows the final
+  pass input *is* the dynamic-resolution size (one upscale pass per frame), not
+  a fixed intermediate. The Windows `fixed_1080p` patch, the controller fields
+  (+0x0c/+0x28), the level→size table index, and `KYTY_EOP_TIMESTAMPS=gpu` with
+  `KYTY_EOP_SCALE` (250/400/1000%) all fail to select 1920x1080: gameplay floors
+  at 2432x1368.
+- **Option A3:** deeper reverse engineering of the resolution selection (which
+  structure/consumer sets the scene target size). Needs a Ghidra 12.1 install
+  for REA (installed 12.2 is rejected).
 - **Option B:** keep FSR4 as an off-by-default experiment, document the neutral
   result, and leave it out of the Linux PR. (Current default.)
 
@@ -86,14 +87,22 @@ ASTROHYBRID_FSR4=1 ASTROHYBRID_FSR4_PASSLOG=1 ASTROHYBRID_FPS_LOG=1 \
   Tools/linux/run.sh run --hybrid
 ASTROHYBRID_FSR4=1 ASTROHYBRID_FSR4_ALLOW_1TO1=1 \
   Tools/linux/run.sh run --hybrid
+KYTY_EOP_TIMESTAMPS=gpu KYTY_EOP_SCALE=250 ASTROHYBRID_FSR4=1 \
+  Tools/linux/run.sh run --hybrid
 
-# drive the menus/game without a pad (XWayland)
-SDL_VIDEODRIVER=x11 ASTROHYBRID_FSR4=1 Tools/linux/run.sh run --hybrid
-xdotool search --name "Source build" windowactivate %@ mousemove --window %@ 700 400 click 1 key j
+# headless, no desktop window, no keyboard injection
+python3 /tmp/opencode/fsr4/vpad_daemon.py &
+printf 'tap BTN_SOUTH\n' > /tmp/opencode/fsr4/vpad.fifo
+SDL_VIDEODRIVER=x11 ASTROHYBRID_FSR4=1 ASTROHYBRID_FPS_LOG=1 \
+  gamescope --backend headless -W 1440 -H 900 -w 1440 -h 900 -- \
+  Tools/linux/run.sh run --hybrid --direct-audio
 ```
 
 ## Warnings
 
+- **Never drive the game with `xdotool key` on the desktop.** It types into
+  whatever window has focus. Use the `uinput` pad daemon + FIFO, or run the
+  game headless under `gamescope --backend headless`.
 - `Tools/linux/prepare-kyty.sh patched` **resets** the Kyty tree and will delete
   the current FSR4 working tree. The patch is the source of truth.
 - `Build/RunHybrid/kyty_gpu.so` currently includes the FSR4 hook but is inert

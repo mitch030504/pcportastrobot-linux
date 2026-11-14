@@ -43,30 +43,48 @@ is skipped by design, so the display alternates between FSR4 and the game's own
 1:1 path; the images are individually clean, but FSR4 is not consistently in
 the path.
 
-## Fixed-1080p attempt (2026-11-14 10:36)
+## Fixed-1080p / A2 attempt (2026-11-14 11:05)
 
-`Source/game-patches/fixed_1080p.toml` (Windows) pins the dynamic-resolution
-controller to level 0 (1920x1080). The Linux relinked `AstroBot` carries the same
-code and the patch was applied there, but it does **not** change the input of
-the final upscale pass:
+The goal was a fixed 1920x1080 scene render so FSR4 upscales 2x. The final pass
+input turned out to **be** the dynamic-resolution size, not a fixed late
+intermediate: a chain log (`ASTROHYBRID_FSR4_PASSLOG=3`) during the Crash Site
+showed one `2432x1368 -> 3840x2160` (or `3328x1872 -> 3840x2160`) pass per
+frame, with no intermediate pass in the same frame.
 
-- The controller instruction (`add r14d, [rbx+8]` / `mov [rbx+0xc], r14d`) is at
-  file offset `0x73E9AB1` (VA `0x77E5AB1`); patching it to `xor r14d, r14d`
-  leaves the final pass at `3328x1872 -> 3840x2160`.
-- Setting both documented controller fields, resolution index `+0x0c` and level
-  `+0x28`, to 0 (and returning through the normal epilogue) also leaves the pass
-  at 3328.
-- The level→size table is at VA `0x88849c0` (heights) / `0x88849d4` (widths),
-  used once at `0x6a754c`; forcing that index to 0 also leaves the pass at 3328.
+Attempts and results:
 
-Conclusion: the dynamic-resolution level drives an **earlier** stage of the
-game's staged upscale chain, not the final `3328 -> 3840` pass. The final pass's
-input is a fixed late intermediate, which is why FSR4 is only a 1.15x upscale.
-Making FSR4 a real upscaler needs the hook to replace the first stage (the
-`1920x1080 -> 2432x1368` pass seen at boot) or to feed the 1080 scene image into
-the final pass. Both are renderer changes beyond this WIP.
+- `Source/game-patches/fixed_1080p.toml` controller patch (`add r14d,[rbx+8]` at
+  file offset `0x73E9AB1`, VA `0x77E5AB1`): no change, still 3328/2432.
+- Both documented controller fields (`+0x0c` index, `+0x28` level) set to 0:
+  no change.
+- Level→size table index forced to 0 at its only consumer (`0x6a754c`, table at
+  VA `0x88849c0`/`0x88849d4`): no change.
+- `KYTY_EOP_TIMESTAMPS=gpu` makes the controller respond to real GPU time: it
+  drops from native 4K to 2432 at the title. The new `KYTY_EOP_SCALE` (published
+  GPU time stretched, 250/400/1000%) nudges the same, but **gameplay floors at
+  2432**; level 0 (1920x1080) is never selected.
+
+Conclusion: the game's DRS does not expose 1920x1080 in gameplay, and the
+controller fields/table are not the selection path for this build. Forcing 1080
+needs a deeper reverse-engineering pass on the resolution selection (Ghidra
+12.1; the installed 12.2 is rejected by REA). Until then FSR4 is at best a
+1.58x upscale and performance-neutral.
 
 The runtime was restored to the clean relinked ELF after the tests.
+
+## Headless test harness
+
+Runs do not need the desktop. `gamescope --backend headless` gives the game an
+off-screen Xwayland output on the real GPU, and a `uinput` Xbox 360 pad created
+before launch drives it without keyboard injection:
+
+```sh
+python3 /tmp/opencode/fsr4/vpad_daemon.py &   # pad + FIFO control
+printf 'tap BTN_SOUTH\n' > /tmp/opencode/fsr4/vpad.fifo
+SDL_VIDEODRIVER=x11 ASTROHYBRID_FSR4=1 \
+  gamescope --backend headless -W 1440 -H 900 -w 1440 -h 900 -- \
+  Tools/linux/run.sh run --hybrid --direct-audio
+```
 
 ## Env switches
 
@@ -79,10 +97,19 @@ The runtime was restored to the clean relinked ELF after the tests.
 - `ASTROHYBRID_FSR4_PASS` — shader hash override.
 - `ASTROHYBRID_FSR4_PASSLOG=1` — once a second, list every pixel program that
   writes 3840x2160 with its input size and rate. `=2` also prints each pass
-  (capped at 400 lines) with its frame counter and output image.
+  (capped at 400 lines) with its frame counter and output image. `=3` prints the
+  whole upscale chain of a frame when its 4K pass arrives (bounded to 40
+  chains); combine with `ASTROHYBRID_FSR4_CHAIN_AT=<frame>` to start at a
+  gameplay frame.
 - `ASTROHYBRID_FSR4_ALLOW_1TO1=1` — also replace the 1:1 4K pass (diagnostic:
   makes every frame go through FSR4).
 - `FSR4_ASSET_DIR` — set by the hook to `<path>/assets` if unset.
+- `KYTY_EOP_TIMESTAMPS=gpu` — make the guest GPU timestamps real, so the game's
+  dynamic-resolution controller sees GPU time instead of command-processor time.
+- `KYTY_EOP_SCALE=<percent>` (25-1000, default 100; with `gpu` timestamps)
+  stretches the published GPU time away from the record time. Above 100 the
+  controller measures more GPU time and lowers the internal resolution; it
+  bottoms out at 2432x1368 on this title.
 
 The hook also logs the four resource formats before the first dispatch and a
 per-second `FSR4: dispatched N time(s) ...` line, so a gameplay run shows
@@ -90,11 +117,12 @@ whether FSR4 keeps replacing the pass.
 
 ## Next steps
 
-1. To make FSR4 worth its cost, force a **fixed lower internal render size**
-   (e.g. 1920x1080) so every frame upscales about 2x. The game's dynamic
-   resolution follows its own GPU timing; `KYTY_GPU_TIMESTAMP_SCALE=200` was
-   tried and did not stabilise it. A Kyty-side clamp on the scene target size
-   would be the cleaner change.
+1. To make FSR4 worth its cost, a **fixed lower internal render size** is still
+   needed. The game's DRS floors at 2432x1368 in gameplay; the controller
+   fields, the level table and the EOP timestamp scale do not select 1920x1080.
+   The next step is a deeper reverse-engineering pass on the resolution
+   selection (which structure/consumer sets the scene target size), with a
+   Ghidra 12.1 install for REA.
 2. Until then, FSR4 is a correctness/quality experiment, not a performance
    option. Keep it off by default and out of the Linux PR.
 3. If the resolution clamp is added, re-check the MV sign, jitter, depth
