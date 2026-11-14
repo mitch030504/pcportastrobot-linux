@@ -118,6 +118,33 @@ observes. The next step is to log scene-target creation in Kyty (guest resource
 descriptor extents) and correlate it with the upscale pass, then clamp there.
 That is a new instrumentation pass, not a game patch.
 
+## A3: Ghidra follow-up (2026-11-14 15:31)
+
+The Ghidra GUI MCP (`127.0.0.1:18080`) now works and was used to decompile the
+manager (`FUN_002a57e0`) and its scene-parameter consumers.
+
+- The level→size table at `0x84849c0`/`0x84849d4` is used **only** inside
+  `FUN_002a57e0`, in a `GfxSceneParameters` telemetry block; forcing its index
+  to 0 does not change the rendered pass.
+- The real scene-parameter field is `+0x3093b4` in the engine object pointed to
+  by `0xf372cf8`, with a second index at `+0x3093b8`. Writers:
+  - `0x6ff7900` setter (`mov [rax+0x3093b4], edi`), getter `0x6ff7910`;
+  - `0xc618e7` block copy (`mov rcx, [rbx+0x18e8]; mov [rax+0x3093b4], rcx`).
+- The renderer consumer at `0x739df16` selects a width from a 5-entry jump
+  table: level 0 = 1920, 1/2 = 2432, 3 = 3328, 4 = 3840; a second read at
+  `0x739df9e` selects from a second width table (`+0x3093b8`).
+- Forcing both reads to 0 (`0x739df16`, `0x739df9e`) and forcing the block copy
+  and setter to 0 still leaves the upscale pass at 2432/3328. The fields are
+  scene/telemetry parameters, not the render-target size the upscale pass
+  consumes.
+
+Conclusion: the render target size is set outside this scene-parameter path,
+most likely in the Agc render-target descriptor / renderer config. The next
+step is A4: instrument Kyty's scene-target creation (extent + guest descriptor
+address + call site) and clamp there.
+
+The game binary was restored clean after the tests.
+
 ## Env switches
 
 - `ASTROHYBRID_FSR4=1` — enable the hook.

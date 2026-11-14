@@ -21,10 +21,9 @@ Next agent: read `.ai/PROJECT.md`, `.ai/PATHS.md`, `.ai/PLAN.md` first.
 - Ghidra GUI MCP: Steam owns `127.0.0.1:8080`, so the client URL is
   `http://127.0.0.1:18080/`. The GhidraMCP extension was **built from source
   against 12.2** and installed in
-  `~/.config/ghidra/ghidra_12.2_DEV/Extensions/Ghidra/` with default port 18080.
-  Restart Ghidra and enable `GhidraMCPPlugin` under
-  `File -> Configure -> Developer`; if an old Tool Option port exists, set it to
-  18080.
+  `~/.config/ghidra/ghidra_12.2_DEV/Extensions/GhidraMCP` with default port 18080.
+  It works when a **CodeBrowser** with a program open has the plugin enabled
+  (the project window's Configure Tool is not the right place).
 - Details and commands: `Docs/REVERSE-ENGINEERING.md`.
 - Config files changed outside the repo (backups `*.bak-20261114`):
   `~/.config/opencode/opencode.json[c]`, `~/.claude.json`,
@@ -63,14 +62,15 @@ tutorial; two defects found during gameplay validation were fixed:
 
 ## Decision pending
 
-- **Option A3** attempted (2026-11-14 11:37): the resolution manager at
-  `eboot.elf 0x2a57e0` is the GPU profiler/DRS controller. Its DRS object is at
-  `[manager+0x540]`, the update helper at `0x37e59b0`, and it reads a global
-  index at `0x2a70e2` (`[0xf372cf8]+0x3093b4`). Forcing the controller fields,
-  the level→size table index (`0x2a7552`) and the global index read all leave
-  the final pass at 2432/3328. The render-target size is set elsewhere.
+- **Option A3** attempted (2026-11-14 15:31): the resolution manager is a
+  GPU-profiler/scene-parameter path. Forcing the controller fields, the
+  level→size table, the global index read (`+0x3093b4`/`+0x3093b8`), the
+  scene-parameter block copy/setter, and the renderer's 5-entry width table
+  (`0x739df16`, level 0 = 1920) all leave the upscale pass at 2432/3328.
+  The render-target size is set outside this path (Agc descriptor/renderer
+  config).
 - **Option A4:** instrument Kyty's scene-target creation (guest resource
-  descriptor extents, call site) and clamp the size there, then re-check FSR4.
+  descriptor extent + call site) and clamp the size there, then re-check FSR4.
 - **Option B:** keep FSR4 as an off-by-default experiment, document the neutral
   result, and leave it out of the Linux PR. (Current default.)
 
