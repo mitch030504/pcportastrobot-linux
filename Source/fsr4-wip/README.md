@@ -15,26 +15,33 @@ pass. It is **not** part of the Linux-port PR branch; apply it after
   when `ASTROHYBRID_FSR4=1`.
 - Restricts the hook to the final `3840x2160` output pass with a larger input
   size, once per frame. Intermediate `1920x1080 -> 2432x1368`, 1:1
-  `2432x1368 -> 2432x1368` and `3840x2160 -> 3840x2160` passes are skipped;
-  without this filter the game's shared upscale shader made FSR4 run several
-  times per frame and the picture glitched heavily.
+  `2432x1368 -> 2432x1368` and `3840x2160 -> 3840x2160` passes are skipped.
 
-## Current result
+## Current result (2026-11-14 10:03)
 
-The provider works and the hook dispatches once per frame, but the in-game image
-still glitches. The remaining suspects:
+The image is stable. Verified in the title screen, the intro cutscenes and the
+Crash Site tutorial: 20-frame screenshot sequences (including camera cuts) are
+clean, with one FSR4 dispatch per upscaled frame. Two defects found and fixed
+in this pass:
 
-1. Motion-vector convention/sign. The hook defaults to
-   `ASTROHYBRID_FSR4_MV_SIGN=-1` (matching the DLSS path); try `1`.
-2. Jitter sign/scale. The game's UV jitter is multiplied by the render size.
-3. Pre-exposure / HDR. `ASTROHYBRID_FSR4_PRE_EXPOSURE` defaults to `1.0`; the
-   game's colour is HDR and may need a different value.
-4. Depth convention and camera near/far/FOV. `ASTROHYBRID_FSR4_NEAR`,
-   `ASTROHYBRID_FSR4_FAR`; FOV is fixed at 1.0472 rad.
-5. The game pass may write more than the first colour target (history/aux), or
-   the Kyty image may have DCC/compression that raw FFX views do not expect.
-6. The selected `3328x1872 -> 3840x2160` pass may still not be the scene's main
-   temporal upscale.
+1. **The output was never committed to Kyty's texture cache.** DLSS calls
+   `out.NoteContentWrite(); cache.CommitGpuWrite(out);` after its evaluation;
+   FSR4 did not. Without it the cache can treat the replaced target as
+   unwritten and let stale or aliased bytes reappear, which showed as
+   intermittent horizontal bands of noise (seen in `Logs/fsr4-1to1.log`,
+   `all-1.png`).
+2. **History was not reset on a render-size change.** The game's dynamic
+   resolution switches between 4K, 3328x1872, 2432x1368 and other sizes, often
+   within the same second. `desc.reset` now also fires when the input size
+   changes.
+
+Performance is roughly neutral: 49-60 FPS in the Crash Site tutorial against
+51.5-53.8 FPS for the same area without FSR4. The reason is the upscale ratio:
+the game renders at 2432-3328 and upscales to 4K, only 1.15-1.58x, so FSR4 has
+little work to remove. On frames where the game renders at native 4K the hook
+is skipped by design, so the display alternates between FSR4 and the game's own
+1:1 path; the images are individually clean, but FSR4 is not consistently in
+the path.
 
 ## Env switches
 
@@ -44,14 +51,29 @@ still glitches. The remaining suspects:
 - `ASTROHYBRID_FSR4_PRE_EXPOSURE` — default `1.0`.
 - `ASTROHYBRID_FSR4_NEAR` / `_FAR` — camera defaults `0.1` / `1000`.
 - `ASTROHYBRID_FSR4_SHARPEN=1` — RCAS on (default off).
+- `ASTROHYBRID_FSR4_PASS` — shader hash override.
+- `ASTROHYBRID_FSR4_PASSLOG=1` — once a second, list every pixel program that
+  writes 3840x2160 with its input size and rate. `=2` also prints each pass
+  (capped at 400 lines) with its frame counter and output image.
+- `ASTROHYBRID_FSR4_ALLOW_1TO1=1` — also replace the 1:1 4K pass (diagnostic:
+  makes every frame go through FSR4).
 - `FSR4_ASSET_DIR` — set by the hook to `<path>/assets` if unset.
+
+The hook also logs the four resource formats before the first dispatch and a
+per-second `FSR4: dispatched N time(s) ...` line, so a gameplay run shows
+whether FSR4 keeps replacing the pass.
 
 ## Next steps
 
-1. Confirm the correct pass and inputs with the FSR4 provider test or a captured
-   frame; compare the game's own upscale output against FSR4 with zero motion.
-2. Try the MV sign/pre-exposure/depth variants before changing engine code.
-3. If the pass cannot be replaced cleanly, keep FSR4 as a separate post-upscale
-   filter (spatial) or leave it disabled for this title.
+1. To make FSR4 worth its cost, force a **fixed lower internal render size**
+   (e.g. 1920x1080) so every frame upscales about 2x. The game's dynamic
+   resolution follows its own GPU timing; `KYTY_GPU_TIMESTAMP_SCALE=200` was
+   tried and did not stabilise it. A Kyty-side clamp on the scene target size
+   would be the cleaner change.
+2. Until then, FSR4 is a correctness/quality experiment, not a performance
+   option. Keep it off by default and out of the Linux PR.
+3. If the resolution clamp is added, re-check the MV sign, jitter, depth
+   convention and pre-exposure at the new ratio; the current defaults were
+   chosen from the DLSS path and look right at 2432-3328.
 
 The FSR4 provider build/staging instructions are in `Tools/fsr4/README.md`.

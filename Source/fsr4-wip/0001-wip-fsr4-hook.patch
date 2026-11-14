@@ -1,21 +1,21 @@
-From d76a0641975cbd866876181d613bec22f7e994c3 Mon Sep 17 00:00:00 2001
+From 4f499e0edc2d05b446d550de5e8d668464a01515 Mon Sep 17 00:00:00 2001
 From: DieMitchell <mitchell030504@gmail.com>
 Date: Sat, 14 Nov 2026 02:24:53 +0100
 Subject: [PATCH] wip(fsr4): hook FSR 4.1.2 into the temporal upscale pass
 
 ---
  CMakeLists.txt                                |   1 +
- src/fsr4/include/ffx_api.h                    | 213 +++++++++++
- src/fsr4/include/ffx_api_types.h              | 257 ++++++++++++++
- src/fsr4/include/ffx_upscale.h                | 230 ++++++++++++
- src/fsr4/include/vk/ffx_api_vk.h              | 308 ++++++++++++++++
+ src/fsr4/include/ffx_api.h                    | 213 +++++++++
+ src/fsr4/include/ffx_api_types.h              | 257 ++++++++++
+ src/fsr4/include/ffx_upscale.h                | 230 +++++++++
+ src/fsr4/include/vk/ffx_api_vk.h              | 308 ++++++++++++
  src/graphics/host_gpu/renderer/dlss.cpp       |  12 +-
- src/graphics/host_gpu/renderer/fsr4.cpp       | 335 ++++++++++++++++++
+ src/graphics/host_gpu/renderer/fsr4.cpp       | 448 ++++++++++++++++++
  src/graphics/host_gpu/renderer/fsr4.h         |  17 +
  src/graphics/host_gpu/renderer/render.h       |   5 +
  src/graphics/host_gpu/renderer/renderDraw.cpp |  15 +-
  .../presentation/window/vulkanWindow.cpp      |  39 ++
- 11 files changed, 1428 insertions(+), 4 deletions(-)
+ 11 files changed, 1541 insertions(+), 4 deletions(-)
  create mode 100644 src/fsr4/include/ffx_api.h
  create mode 100644 src/fsr4/include/ffx_api_types.h
  create mode 100644 src/fsr4/include/ffx_upscale.h
@@ -1104,10 +1104,10 @@ index 8e956181..b8e5d951 100644
  		return false;
 diff --git a/src/graphics/host_gpu/renderer/fsr4.cpp b/src/graphics/host_gpu/renderer/fsr4.cpp
 new file mode 100644
-index 00000000..3f03d03e
+index 00000000..200a6754
 --- /dev/null
 +++ b/src/graphics/host_gpu/renderer/fsr4.cpp
-@@ -0,0 +1,335 @@
+@@ -0,0 +1,448 @@
 +// Native FSR 4.1.2 through the FidelityFX SDK Vulkan provider.
 +//
 +// The provider is an optional, externally built GPL-3.0 library (the local
@@ -1124,6 +1124,7 @@ index 00000000..3f03d03e
 +#include "graphics/host_gpu/renderer/renderContext.h"
 +#include "graphics/host_gpu/vulkanCommon.h"
 +
++#include <chrono>
 +#include <cstdint>
 +#include <cstdio>
 +#include <cstdlib>
@@ -1185,6 +1186,8 @@ index 00000000..3f03d03e
 +	uint32_t             out_h      = 0;
 +	uint64_t             last_frame = 0;
 +	uint64_t             last_dispatch_frame = 0;
++	uint32_t             last_in_w   = 0;
++	uint32_t             last_in_h   = 0;
 +};
 +
 +State& Get() {
@@ -1299,6 +1302,75 @@ index 00000000..3f03d03e
 +	if (!Fsr4::Requested() || pixel.runtime == nullptr || !*pixel.runtime) {
 +		return false;
 +	}
++	// ASTROHYBRID_FSR4_PASSLOG=1: once a second, list every pixel program that writes a
++	// 3840x2160 target with the input size from its constants. This shows whether the
++	// matched pass covers every frame or shares the upscale with other variants.
++	static const bool pass_log = [] {
++		const char* value = std::getenv("ASTROHYBRID_FSR4_PASSLOG");
++		return value != nullptr && value[0] != '\0';
++	}();
++	static const bool pass_log_verbose = [] {
++		const char* value = std::getenv("ASTROHYBRID_FSR4_PASSLOG");
++		return value != nullptr && std::strcmp(value, "2") == 0;
++	}();
++	if (pass_log) {
++		struct Candidate {
++			uint64_t hash;
++			uint32_t in_w;
++			uint32_t in_h;
++			uint32_t count;
++		};
++		static Candidate candidates[8] {};
++		static uint32_t  candidate_count = 0;
++		static auto      window_start    = std::chrono::steady_clock::now();
++		if (!pixel.buffer_sources.empty() && pixel.buffer_sources[0].address != 0 &&
++		    pixel.buffer_sources[0].size >= 32) {
++			const auto*    cb0 = reinterpret_cast<const uint32_t*>(pixel.buffer_sources[0].address);
++			const uint32_t ow = cb0[4], oh = cb0[5], in_w = cb0[6], in_h = cb0[7];
++			if (ow == 3840 && oh == 2160 && in_w != 0 && in_h != 0) {
++				const uint64_t hash = pixel.runtime->program->shader_hash;
++				if (pass_log_verbose) {
++					static uint32_t lines = 0;
++					if (lines < 400) {
++						++lines;
++						std::printf("FSR4: pass hash=0x%016llx %ux%u -> %ux%u frame=%u mv=%u out=%u/%u\n",
++						            static_cast<unsigned long long>(hash), in_w, in_h, ow, oh, cb0[11],
++						            cb0[13], output.index, output.generation);
++						std::fflush(stdout);
++					}
++				}
++				uint32_t slot = candidate_count;
++				for (uint32_t i = 0; i < candidate_count; ++i) {
++					if (candidates[i].hash == hash && candidates[i].in_w == in_w &&
++					    candidates[i].in_h == in_h) {
++						slot = i;
++						break;
++					}
++				}
++				if (slot == candidate_count && candidate_count < 8) {
++					candidates[candidate_count++] = Candidate {hash, in_w, in_h, 0};
++				}
++				if (slot < candidate_count) {
++					++candidates[slot].count;
++				}
++			}
++		}
++		const auto now = std::chrono::steady_clock::now();
++		if (now - window_start >= std::chrono::seconds(1)) {
++			const auto elapsed =
++			    std::chrono::duration_cast<std::chrono::milliseconds>(now - window_start).count();
++			std::printf("FSR4: 4K passes in %lld ms:", static_cast<long long>(elapsed));
++			for (uint32_t i = 0; i < candidate_count; ++i) {
++				std::printf(" 0x%016llx %ux%u x%u",
++				            static_cast<unsigned long long>(candidates[i].hash),
++				            candidates[i].in_w, candidates[i].in_h, candidates[i].count);
++				candidates[i].count = 0;
++			}
++			std::printf("\n");
++			std::fflush(stdout);
++			window_start = now;
++		}
++	}
 +	static const uint64_t pass_hash = [] {
 +		const char* value = std::getenv("ASTROHYBRID_FSR4_PASS");
 +		return value != nullptr ? std::strtoull(value, nullptr, 0) : 0x2936e5eca99d75e7ull;
@@ -1320,10 +1392,17 @@ index 00000000..3f03d03e
 +		return false;
 +	}
 +	// The game uses the same upscale shader for intermediate and 1:1 passes. FSR4 is only
-+	// meaningful for the final 4K scene upscale, once per frame.
++	// meaningful for the final 4K scene upscale. ASTROHYBRID_FSR4_ALLOW_1TO1=1 also replaces
++	// the 1:1 4K pass (diagnostic: makes every frame go through FSR4 so a mixed
++	// FSR4/game-upscaler image can be ruled out).
++	static const bool allow_1to1 = [] {
++		const char* value = std::getenv("ASTROHYBRID_FSR4_ALLOW_1TO1");
++		return value != nullptr && std::strcmp(value, "1") == 0;
++	}();
 +	constexpr uint32_t kTargetWidth = 3840;
 +	constexpr uint32_t kTargetHeight = 2160;
-+	if (out_w != kTargetWidth || out_h != kTargetHeight || in_w >= out_w || in_h >= out_h) {
++	if (out_w != kTargetWidth || out_h != kTargetHeight || in_w > out_w || in_h > out_h ||
++	    (!allow_1to1 && (in_w >= out_w || in_h >= out_h))) {
 +		return false;
 +	}
 +	if (s.last_dispatch_frame == frame) {
@@ -1357,6 +1436,19 @@ index 00000000..3f03d03e
 +	auto& graphics = m_context.GetGraphics();
 +	if (!CreateContext(s, graphics, 3840, 2160, 3840, 2160)) {
 +		return false;
++	}
++
++	// Diagnostics: the provider only maps a few formats (an unmapped one falls back to RGBA8),
++	// so print what the four resources really are before the first dispatch.
++	static bool formats_logged = false;
++	if (!formats_logged) {
++		formats_logged = true;
++		std::printf("FSR4: formats mv=%s(%u layer(s)) color=%s(%u) depth=%s(%u) out=%s(%u)\n",
++		            vk::to_string(mv.backing.format).c_str(), mv.backing.layers,
++		            vk::to_string(color.backing.format).c_str(), color.backing.layers,
++		            vk::to_string(depth.backing.format).c_str(), depth.backing.layers,
++		            vk::to_string(out.backing.format).c_str(), out.backing.layers);
++		std::fflush(stdout);
 +	}
 +
 +	buffer.EndRendering();
@@ -1413,17 +1505,31 @@ index 00000000..3f03d03e
 +	desc.sharpness            = sharpening ? 0.2f : 0.0f;
 +	desc.frameTimeDelta       = 16.7f;
 +	desc.preExposure          = pre_exposure;
-+	desc.reset                = s.last_frame != 0 && frame != s.last_frame + 1;
++	// A frame discontinuity is a reset, and so is a render-size change: the game's dynamic
++	// resolution switches often and the provider's history is not meant to cross scales.
++	desc.reset                = (s.last_frame != 0 && frame != s.last_frame + 1) ||
++	                            (s.last_in_w != 0 && (in_w != s.last_in_w || in_h != s.last_in_h));
 +	desc.cameraNear           = camera_near;
 +	desc.cameraFar            = camera_far;
 +	desc.cameraFovAngleVertical = 1.0472f;
 +	desc.viewSpaceToMetersFactor = 1.0f;
 +	desc.flags                = 0;
 +
-+	static uint32_t debug = 0;
-+	if (debug++ < 8) {
-+		std::printf("FSR4: dispatch frame=%u %ux%u -> %ux%u\n", frame, in_w, in_h, out_w, out_h);
++	static uint32_t dispatched  = 0;
++	static auto     rate_start  = std::chrono::steady_clock::now();
++	if (desc.reset) {
++		std::printf("FSR4: history reset for frame=%u\n", frame);
 +		std::fflush(stdout);
++	}
++	++dispatched;
++	if (const auto now = std::chrono::steady_clock::now();
++	    now - rate_start >= std::chrono::seconds(1)) {
++		const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - rate_start).count();
++		std::printf("FSR4: dispatched %u time(s) in %lld ms (frame=%u %ux%u -> %ux%u)\n",
++		            dispatched, static_cast<long long>(elapsed), frame, in_w, in_h, out_w, out_h);
++		std::fflush(stdout);
++		dispatched = 0;
++		rate_start = now;
 +	}
 +	s.last_frame = frame;
 +	const auto result = s.dispatch(&s.context, &desc.header);
@@ -1436,7 +1542,14 @@ index 00000000..3f03d03e
 +		}
 +		return false;
 +	}
++	// The output now holds FSR4's image: a GPU write of the target, as the replaced draw's
++	// would be. Without this the texture cache can treat the target as unwritten and let
++	// stale or aliased bytes reappear over part of FSR4's output.
++	out.NoteContentWrite();
++	cache.CommitGpuWrite(out);
 +	s.last_dispatch_frame = frame;
++	s.last_in_w           = in_w;
++	s.last_in_h           = in_h;
 +	return true;
 +}
 +
