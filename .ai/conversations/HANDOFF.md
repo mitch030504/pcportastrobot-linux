@@ -1,7 +1,16 @@
 # Handoff — AstroHybrid Linux + FSR4 WIP
 
-Last updated: **2026-11-14 02:26 CET** by **opencode (DeepSeek V4.1 Flash)**.
+Last updated: **2026-11-14 02:28 CET** by **opencode (DeepSeek V4.1 Flash)**.
 Next agent: read `.ai/PROJECT.md`, `.ai/PATHS.md`, `.ai/PLAN.md` first.
+
+## Branches (fork `mitch030504/pcportastrobot-linux`)
+
+- `linux-port` = `19b21e6` — working Linux port; PR #23; **no FSR4**.
+- `main` = `9f2bed6` — working port + this handoff (no FSR4).
+- `fsr4-wip` = `3058312` — working port + FSR4 hook patch/staging + handoff;
+  **continue here** for FSR4.
+- Local Kyty tree: branch `fsr4-wip`, commit `d76a0641`; FSR4 patch is
+  `Source/fsr4-wip/0001-wip-fsr4-hook.patch`.
 
 ## Current state
 
