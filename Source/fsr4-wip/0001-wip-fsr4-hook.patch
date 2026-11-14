@@ -1,4 +1,4 @@
-From e90c58523db797d6a38fed175230ccb991b0bb39 Mon Sep 17 00:00:00 2001
+From 2f9ad326b78b0f4f71459df0a6eb78df96eafd84 Mon Sep 17 00:00:00 2001
 From: DieMitchell <mitchell030504@gmail.com>
 Date: Sat, 14 Nov 2026 02:24:53 +0100
 Subject: [PATCH] wip(fsr4): hook FSR 4.1.2 into the temporal upscale pass
@@ -9,15 +9,15 @@ Subject: [PATCH] wip(fsr4): hook FSR 4.1.2 into the temporal upscale pass
  src/fsr4/include/ffx_api_types.h              | 257 +++++++++
  src/fsr4/include/ffx_upscale.h                | 230 ++++++++
  src/fsr4/include/vk/ffx_api_vk.h              | 308 +++++++++++
- .../host_gpu/renderer/cache/textureCache.cpp  |  29 +
+ .../host_gpu/renderer/cache/textureCache.cpp  |  42 ++
  src/graphics/host_gpu/renderer/dlss.cpp       |  12 +-
  .../host_gpu/renderer/eopTimestamps.cpp       |  31 ++
- src/graphics/host_gpu/renderer/fsr4.cpp       | 500 ++++++++++++++++++
+ src/graphics/host_gpu/renderer/fsr4.cpp       | 507 ++++++++++++++++++
  src/graphics/host_gpu/renderer/fsr4.h         |  17 +
  src/graphics/host_gpu/renderer/render.h       |   5 +
  src/graphics/host_gpu/renderer/renderDraw.cpp |  15 +-
  .../presentation/window/vulkanWindow.cpp      |  39 ++
- 13 files changed, 1653 insertions(+), 4 deletions(-)
+ 13 files changed, 1673 insertions(+), 4 deletions(-)
  create mode 100644 src/fsr4/include/ffx_api.h
  create mode 100644 src/fsr4/include/ffx_api_types.h
  create mode 100644 src/fsr4/include/ffx_upscale.h
@@ -1070,7 +1070,7 @@ index 00000000..1bbe1d9e
 +
 +#endif
 diff --git a/src/graphics/host_gpu/renderer/cache/textureCache.cpp b/src/graphics/host_gpu/renderer/cache/textureCache.cpp
-index aa95affc..53e4cf9f 100644
+index aa95affc..6652efc9 100644
 --- a/src/graphics/host_gpu/renderer/cache/textureCache.cpp
 +++ b/src/graphics/host_gpu/renderer/cache/textureCache.cpp
 @@ -48,6 +48,9 @@
@@ -1116,6 +1116,26 @@ index aa95affc..53e4cf9f 100644
  	if (resident_first != 0 && resident_prefix == 0) {
  		resident_prefix = ResidentPrefixSize(info, resident_first);
  	}
+@@ -4124,6 +4153,19 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_format, RepeatLookup
+ 	if (command.IsInvalid()) {
+ 		EXIT("TextureCache: image lookup requires a valid command buffer\n");
+ 	}
++	// A4b: ASTROHYBRID_FSR4_TARGET=1 forces the game's dynamic scene sizes to 1920x1080,
++	// so the final upscale pass and FSR4 work from a 2x input. Off by default; the normal
++	// port keeps the game's own dynamic sizes.
++	static const bool target_clamp = [] {
++		const char* value = std::getenv("ASTROHYBRID_FSR4_TARGET");
++		return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
++	}();
++	if (target_clamp &&
++	    ((desc.info.extent.width == 2432 && desc.info.extent.height == 1368) ||
++	     (desc.info.extent.width == 3328 && desc.info.extent.height == 1872))) {
++		desc.info.extent.width  = 1920;
++		desc.info.extent.height = 1080;
++	}
+ 	ValidateImageDesc(desc);
+ 	if (desc.info.data.Empty()) {
+ 		std::scoped_lock lock {m_lock};
 diff --git a/src/graphics/host_gpu/renderer/dlss.cpp b/src/graphics/host_gpu/renderer/dlss.cpp
 index 8e956181..b8e5d951 100644
 --- a/src/graphics/host_gpu/renderer/dlss.cpp
@@ -1209,10 +1229,10 @@ index 3b140f69..fd151eff 100644
  }
 diff --git a/src/graphics/host_gpu/renderer/fsr4.cpp b/src/graphics/host_gpu/renderer/fsr4.cpp
 new file mode 100644
-index 00000000..2579013a
+index 00000000..9c1f6aea
 --- /dev/null
 +++ b/src/graphics/host_gpu/renderer/fsr4.cpp
-@@ -0,0 +1,500 @@
+@@ -0,0 +1,507 @@
 +// Native FSR 4.1.2 through the FidelityFX SDK Vulkan provider.
 +//
 +// The provider is an optional, externally built GPL-3.0 library (the local
@@ -1492,7 +1512,8 @@ index 00000000..2579013a
 +	const auto* cb = reinterpret_cast<const uint32_t*>(pixel.buffer_sources[0].address);
 +	float       jitter_uv[2];
 +	std::memcpy(jitter_uv, cb, sizeof(jitter_uv));
-+	const uint32_t out_w = cb[4], out_h = cb[5], in_w = cb[6], in_h = cb[7], frame = cb[11];
++	uint32_t out_w = cb[4], out_h = cb[5], in_w = cb[6], in_h = cb[7];
++	const uint32_t frame = cb[11];
 +	if (cb[13] == 0 || in_w == 0 || in_h == 0 || out_w == 0 || out_h == 0) {
 +		return false;
 +	}
@@ -1575,6 +1596,12 @@ index 00000000..2579013a
 +	auto& color = cache.GetImage(color_id);
 +	auto& depth = cache.GetImage(depth_id);
 +	auto& out   = cache.GetImage(output);
++	// A4b: the scene target may have been clamped to 1920x1080 while the game's constants
++	// still name 2432/3328. Use the actual color image extent for the FSR4 dispatch.
++	if (color.info.extent.width != in_w || color.info.extent.height != in_h) {
++		in_w = color.info.extent.width;
++		in_h = color.info.extent.height;
++	}
 +	const auto same = [](const Image& image, uint32_t w, uint32_t h) {
 +		return image.info.extent.width == w && image.info.extent.height == h &&
 +		       image.backing.image != nullptr && image.info.samples == 1;

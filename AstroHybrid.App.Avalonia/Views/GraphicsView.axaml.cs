@@ -56,6 +56,7 @@ public partial class GraphicsView : UserControl
         FullscreenBox.IsChecked = settings.Fullscreen;
         GameSpeedBox.IsChecked = settings.GameSpeed;
         DirectAudioBox.IsChecked = settings.DirectAudio;
+        Fsr4Box.IsChecked = settings.Fsr4;
         AudioSinkBox.Text = settings.AudioSink;
     }
 
@@ -73,6 +74,7 @@ public partial class GraphicsView : UserControl
         _settings.Fullscreen = FullscreenBox.IsChecked == true;
         _settings.GameSpeed = GameSpeedBox.IsChecked == true;
         _settings.DirectAudio = DirectAudioBox.IsChecked == true;
+        _settings.Fsr4 = Fsr4Box.IsChecked == true;
         _settings.AudioSink = AudioSinkBox.Text?.Trim() ?? "";
         _backend.SaveSettings(_settings);
         SaveStatus.Text = $"Saved to {Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}/.config/astrohybrid/settings.json";

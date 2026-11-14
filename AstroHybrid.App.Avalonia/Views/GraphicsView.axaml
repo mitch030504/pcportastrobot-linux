@@ -6,7 +6,7 @@
       <StackPanel Spacing="4">
         <TextBlock Text="Graphics" Classes="h1" />
         <TextBlock Classes="muted"
-                   Text="The Linux port uses the game's own upscaler and Kyty's Vulkan renderer. DLSS, Frame Generation and Reflex are Windows/NVIDIA-only and are not part of this build." />
+                   Text="The Linux port uses the game's own upscaler by default; an optional experimental FSR 4 mode is available below. DLSS, Frame Generation and Reflex are Windows/NVIDIA-only and are not part of this build." />
       </StackPanel>
 
       <Border Classes="card">
@@ -37,6 +37,14 @@
           <CheckBox Grid.Row="3" Grid.Column="1" x:Name="GameSpeedBox" Content="Keep real time"
                     HorizontalAlignment="Right" />
         </Grid>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="6">
+          <CheckBox x:Name="Fsr4Box" Content="FSR 4 (experimental)" />
+          <TextBlock Classes="muted" FontSize="12"
+                     Text="Replaces the final upscale with FSR 4.1.2 and forces the scene to render at 1920×1080 for a 2× upscale. Requires the optional FSR 4 provider staged in Build/RunHybrid/fsr4; off by default." />
+        </StackPanel>
       </Border>
 
       <StackPanel Orientation="Horizontal" Spacing="12">

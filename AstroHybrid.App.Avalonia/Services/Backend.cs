@@ -19,6 +19,7 @@ public sealed class AppSettings
     public bool Fullscreen { get; set; }
     public bool GameSpeed { get; set; } = true;
     public bool PadMotion { get; set; }
+    public bool Fsr4 { get; set; }
     public bool DirectAudio { get; set; } = true;
     public string AudioSink { get; set; } = "";
     public string ExtraEnv { get; set; } = "";
@@ -166,6 +167,17 @@ public sealed class Backend
         {
             arguments.Add("--env");
             arguments.Add("ASTROHYBRID_PAD_MOTION");
+            arguments.Add("1");
+        }
+        if (settings.Fsr4)
+        {
+            // Experimental: FSR 4.1.2 on the final upscale, with the game's dynamic scene
+            // targets clamped to 1920x1080 for a 2x input. Requires Build/RunHybrid/fsr4.
+            arguments.Add("--env");
+            arguments.Add("ASTROHYBRID_FSR4");
+            arguments.Add("1");
+            arguments.Add("--env");
+            arguments.Add("ASTROHYBRID_FSR4_TARGET");
             arguments.Add("1");
         }
         foreach (var pair in ParseEnv(settings.ExtraEnv))

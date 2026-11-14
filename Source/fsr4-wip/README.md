@@ -167,10 +167,22 @@ Clamp points found:
   `renderDraw.cpp` (`SetGraphicsDynamicParams`, guest `xscale`/`yscale`), so
   shrinking only the image would crop the scene.
 
-Next (A4b): add a fixed target scale (1920x1080), scale the color/depth extent
-and the guest viewport/scissor by the same ratio, and override the final pass's
-`in_w`/`in_h`, jitter and motion-vector scale in the FSR4 hook to the actual
-image extent. Then re-check the dispatch size and FPS.
+Next (A4b) was implemented and works:
+
+- `ASTROHYBRID_FSR4_TARGET=1` (gated; also the launcher's "FSR 4 (experimental)"
+  checkbox sets `ASTROHYBRID_FSR4=1` + `ASTROHYBRID_FSR4_TARGET=1`).
+- `FindImage` maps the game's `2432x1368` and `3328x1872` images to `1920x1080`
+  when the flag is set; the FSR4 hook uses the actual color image extent for
+  `renderSize`, jitter and motion-vector scale.
+- Gameplay renders at 1920x1080 and FSR4 dispatches `1920x1080 -> 3840x2160`.
+  Captured Crash Site frames (desert, controller, tutorial UI) are full-frame
+  and clean; no cropping.
+- Crash Site 60 s FPS samples: **51.8 mean / 54 median** with FSR4 at
+  3328x1872 vs **53.0 / 56** with the 1920 target. The hub cutscene was
+  38-46 FPS before and 56-60 after. The gain is modest because the scene is
+  partly CPU/transition-bound.
+- The mode is off by default; the normal port (FSR4 off) is unchanged. The
+  Linux PR remains FSR4-free.
 
 ## Env switches
 

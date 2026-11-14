@@ -37,48 +37,33 @@ title, worldmap, intro and Crash Site tutorial, and held 51.5–53.8 FPS over fi
 60 s windows. Audio is routed directly to the default sink with `--direct-audio`.
 
 The **FSR 4.1.2 WIP** is on `fsr4-wip` and in the local Kyty tree. It is **not**
-in PR #23. The image is now **stable** in the title, cutscenes and Crash Site
-tutorial; two defects found during gameplay validation were fixed:
-
-1. The output image was never committed to Kyty's texture cache after
-   `ffxDispatch`. DLSS does `out.NoteContentWrite(); cache.CommitGpuWrite(out);`;
-   the FSR4 hook did not. Without it the cache could let stale/aliased bytes
-   reappear, which produced intermittent horizontal bands of noise.
-2. FSR4 history is now reset when the render size changes. The game's dynamic
-   resolution switches between 4K, 3328x1872, 2432x1368 and other sizes within
-   the same second.
+in PR #23. The final upscale is stable, and the experimental 2x path now works:
+`ASTROHYBRID_FSR4_TARGET=1` (launcher: **FSR 4 (experimental)**) clamps the
+game's `2432/3328` scene targets to `1920x1080`, so FSR4 dispatches
+`1920x1080 -> 3840x2160`. Crash Site frames are full and clean; 60 s samples
+were 51.8/54 FPS (FSR4 at 3328) vs 53.0/56 FPS (1920). The gain is modest
+because the scene is partly CPU/transition-bound. Off by default. Earlier fixes kept: the output image is committed to Kyty's
+texture cache after `ffxDispatch`, and FSR4 history resets on render-size
+changes.
 
 ## FSR4 validation result
 
-- 20-frame screenshot sequences (including camera cuts) are clean; one FSR4
-  dispatch per upscaled frame; titles and Crash Site gameplay look correct.
-- Performance is **neutral**: 49–60 FPS in the Crash Site tutorial against
-  51.5–53.8 FPS without FSR4. The game upscales only 1.15–1.58x
-  (2432/3328 -> 4K), and frames rendered at native 4K skip the hook by design.
-- `ASTROHYBRID_FSR4_ALLOW_1TO1=1` makes every frame go through FSR4 (4K 1:1);
-  it is a diagnostic, not a performance mode.
-- `KYTY_GPU_TIMESTAMP_SCALE=200` was tried to force a lower dynamic resolution;
-  it did not stabilise the render size.
+- The experimental 2x mode (`ASTROHYBRID_FSR4_TARGET=1`, launcher checkbox)
+  renders 1920x1080 and FSR4 dispatches `1920x1080 -> 3840x2160`. Desert,
+  controller and tutorial frames are full-frame and clean.
+- Crash Site 60 s samples: 51.8 mean/54 median FPS with FSR4 at 3328x1872;
+  53.0/56 with the 1920 target. The hub cutscene was 38-46 vs 56-60. The gain
+  is modest because the scene is partly CPU/transition-bound.
+- The normal port (FSR4 off) is unchanged; PR #23 remains FSR4-free.
 
 ## Decision pending
 
-- **Option A3** attempted (2026-11-14 15:31): the resolution manager is a
-  GPU-profiler/scene-parameter path. Forcing the controller fields, the
-  level→size table, the global index read (`+0x3093b4`/`+0x3093b8`), the
-  scene-parameter block copy/setter, and the renderer's 5-entry width table
-  (`0x739df16`, level 0 = 1920) all leave the upscale pass at 2432/3328.
-  The render-target size is set outside this path (Agc descriptor/renderer
-  config).
-- **Option A4** instrumentation done (2026-11-14 15:40): the final pass color
-  target is `R16G16B16A16Sfloat` at `2432x1368` (`addr=0x53e020000`) or
-  `3328x1872` (`addr=0x51c630000`). Creation path `colorRenderTarget.cpp:560`;
-  viewport/scissor from `renderDraw.cpp` (`SetGraphicsDynamicParams`).
-  Instrumentation: `ASTROHYBRID_TARGET_LOG=1`.
-- **Option A4b:** add a fixed 1920x1080 clamp: scale target extent and guest
-  viewport/scissor by the same ratio, override the final pass `in_w`/`in_h`,
-  jitter and MV scale in the FSR4 hook, then measure.
-- **Option B:** keep FSR4 as an off-by-default experiment, document the neutral
-  result, and leave it out of the Linux PR. (Current default.)
+- **A4b done**: `FindImage` clamps the `2432x1368`/`3328x1872` targets to
+  `1920x1080` when `ASTROHYBRID_FSR4_TARGET=1`; the hook uses the actual image
+  extent. The Avalonia Graphics page has the "FSR 4 (experimental)" toggle.
+- Decide whether to keep the experimental mode in the WIP branch + launcher, or
+  leave it env-only.
+- **Option B** remains the fallback: FSR4 off by default, out of the PR.
 
 ## Next FPS actions
 
