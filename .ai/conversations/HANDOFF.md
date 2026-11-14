@@ -45,15 +45,14 @@ tutorial; two defects found during gameplay validation were fixed:
 
 ## Decision pending
 
-- **Option A / A2** attempted (2026-11-14 11:00). Chain logging shows the final
-  pass input *is* the dynamic-resolution size (one upscale pass per frame), not
-  a fixed intermediate. The Windows `fixed_1080p` patch, the controller fields
-  (+0x0c/+0x28), the level→size table index, and `KYTY_EOP_TIMESTAMPS=gpu` with
-  `KYTY_EOP_SCALE` (250/400/1000%) all fail to select 1920x1080: gameplay floors
-  at 2432x1368.
-- **Option A3:** deeper reverse engineering of the resolution selection (which
-  structure/consumer sets the scene target size). Needs a Ghidra 12.1 install
-  for REA (installed 12.2 is rejected).
+- **Option A3** attempted (2026-11-14 11:37): the resolution manager at
+  `eboot.elf 0x2a57e0` is the GPU profiler/DRS controller. Its DRS object is at
+  `[manager+0x540]`, the update helper at `0x37e59b0`, and it reads a global
+  index at `0x2a70e2` (`[0xf372cf8]+0x3093b4`). Forcing the controller fields,
+  the level→size table index (`0x2a7552`) and the global index read all leave
+  the final pass at 2432/3328. The render-target size is set elsewhere.
+- **Option A4:** instrument Kyty's scene-target creation (guest resource
+  descriptor extents, call site) and clamp the size there, then re-check FSR4.
 - **Option B:** keep FSR4 as an off-by-default experiment, document the neutral
   result, and leave it out of the Linux PR. (Current default.)
 

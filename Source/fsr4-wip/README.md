@@ -86,6 +86,38 @@ SDL_VIDEODRIVER=x11 ASTROHYBRID_FSR4=1 \
   Tools/linux/run.sh run --hybrid --direct-audio
 ```
 
+## A3: resolution-selection RE (2026-11-14 11:37)
+
+A headless decompile of the resolution manager (`eboot.elf` original VA
+`0x2a57e0`; relinked `0x6a57e0`) was done with radare2 (`pdc`; r2ghidra is not
+installed). REA/Ghidra 12.1.2 works but a full import of the 247 MB eboot times
+out (330 s) — use r2 or a persistent Ghidra project.
+
+Findings:
+
+- DRS update helper: original `0x37e59b0` (relinked `0x77e59b0`). Writes the
+  resolution index at object `+0x0c`, level at `+0x28`.
+- DRS object: `[manager + 0x540]`; manager singleton global at `0xf6759d8`
+  (`[0xf6759d8+0x540]` in the relinked layout).
+- The manager reads the index it uses from `[0xf372cf8] + 0x3093b4` at
+  original `0x2a70e2` (`movsxd r11, [rax+0x3093b4]`).
+- Level→size table: original `0x84849c0` (heights) / `0x84849d4` (widths);
+  consumer at `0x2a7552`.
+
+Tried, none changed the final pass from 2432/3328:
+
+- `fixed_1080p` controller patch (`0x73e5ab1`).
+- Controller fields `+0x0c`/`+0x28` set to 0.
+- Table index forced to 0 at `0x2a7552`.
+- Global index read at `0x2a70e2` replaced with `xor r11d, r11d`.
+
+Conclusion: this function is the **GPU profiler / DRS controller**, not the
+render-target size source. The render size is set elsewhere — most likely in
+the Agc render-target descriptor or a renderer config that the profiler only
+observes. The next step is to log scene-target creation in Kyty (guest resource
+descriptor extents) and correlate it with the upscale pass, then clamp there.
+That is a new instrumentation pass, not a game patch.
+
 ## Env switches
 
 - `ASTROHYBRID_FSR4=1` — enable the hook.
@@ -117,16 +149,13 @@ whether FSR4 keeps replacing the pass.
 
 ## Next steps
 
-1. To make FSR4 worth its cost, a **fixed lower internal render size** is still
-   needed. The game's DRS floors at 2432x1368 in gameplay; the controller
-   fields, the level table and the EOP timestamp scale do not select 1920x1080.
-   The next step is a deeper reverse-engineering pass on the resolution
-   selection (which structure/consumer sets the scene target size), with a
-   Ghidra 12.1 install for REA.
-2. Until then, FSR4 is a correctness/quality experiment, not a performance
-   option. Keep it off by default and out of the Linux PR.
-3. If the resolution clamp is added, re-check the MV sign, jitter, depth
-   convention and pre-exposure at the new ratio; the current defaults were
-   chosen from the DLSS path and look right at 2432-3328.
+1. Instrument Kyty's image/resource creation for the scene color/depth targets
+   (extent, guest descriptor address, call stack) and correlate with the
+   upscale pass. The profiler/DRS controller is not the size source; the Agc
+   render-target descriptor or the renderer config is.
+2. Until a fixed lower scale exists, FSR4 is a correctness/quality experiment,
+   not a performance option. Keep it off by default and out of the Linux PR.
+3. If the clamp lands, re-check the MV sign, jitter, depth convention and
+   pre-exposure at the new ratio; the current defaults look right at 2432-3328.
 
 The FSR4 provider build/staging instructions are in `Tools/fsr4/README.md`.

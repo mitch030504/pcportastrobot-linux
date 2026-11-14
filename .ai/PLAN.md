@@ -11,7 +11,8 @@
 - [x] Document the neutral performance result: the game upscales only 1.15-1.58x (2432/3328 -> 4K), and native-4K frames skip FSR4, so there is little to win.
 - [x] Option A attempted: apply `Source/game-patches/fixed_1080p.toml` to the Linux relinked ELF and force the documented controller fields/table index to level 0. Result: no change; the final pass input **is** the dynamic-resolution size (confirmed with the chain log), not a fixed intermediate.
 - [x] Option A2 attempted: `KYTY_EOP_TIMESTAMPS=gpu` makes the controller respond (4K -> 2432) and the new `KYTY_EOP_SCALE` stretches the measured GPU time, but gameplay floors at **2432x1368**; 1920x1080 is never selected.
-- [ ] Option A3 (pending): deeper reverse engineering of the resolution selection (which structure/consumer sets the scene target size). Needs a Ghidra 12.1 install for REA (12.2 is rejected).
+- [x] Option A3 attempted: r2 decompile of the resolution manager (`eboot.elf` `0x2a57e0`) found the DRS object at `[manager+0x540]`, its update helper at `0x37e59b0`, a global index read at `0x2a70e2` (`[0xf372cf8]+0x3093b4`), and the level→size table at `0x84849c0/0x84849d4`. Forcing the controller fields, the table index, and the global index read all leave the final pass at 2432/3328. This function is the GPU profiler/DRS controller, not the render-target size source.
+- [ ] A4: instrument Kyty's scene-target creation (guest resource descriptor extents + call site) and clamp the size there, then re-check FSR4.
 - [ ] Option B (fallback): keep FSR4 off by default, document the neutral result, leave the Linux PR FSR4-free.
 - [x] Headless test harness: `gamescope --backend headless` + a `uinput` Xbox 360 pad (`vpad_daemon.py`, FIFO control). No desktop window and no keyboard injection.
 - [ ] If a lower fixed render scale lands: re-tune MV sign / jitter / depth / pre-exposure.
