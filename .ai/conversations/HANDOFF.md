@@ -1,50 +1,55 @@
 # Handoff — AstroHybrid Linux + FSR4 WIP
 
-Last updated: **2026-11-14 02:28 CET** by **opencode (DeepSeek V4.1 Flash)**.
+Last updated: **2026-11-14 10:05 CET** by **opencode (DeepSeek V4.1 Flash)**.
 Next agent: read `.ai/PROJECT.md`, `.ai/PATHS.md`, `.ai/PLAN.md` first.
 
 ## Branches (fork `mitch030504/pcportastrobot-linux`)
 
 - `linux-port` = `19b21e6` — working Linux port; PR #23; **no FSR4**.
-- `main` = `9f2bed6` — working port + this handoff (no FSR4).
-- `fsr4-wip` = `3058312` — working port + FSR4 hook patch/staging + handoff;
+- `main` = `9f2bed6` — working port + earlier handoff (no FSR4).
+- `fsr4-wip` = `d15aabe` — working port + FSR4 hook patch/staging + this handoff;
   **continue here** for FSR4.
-- Local Kyty tree: branch `fsr4-wip`, commit `d76a0641`; FSR4 patch is
+- Local Kyty tree: branch `fsr4-wip`, commit `4f499e0e`; FSR4 patch is
   `Source/fsr4-wip/0001-wip-fsr4-hook.patch`.
 
 ## Current state
 
-The **working Linux native port** is on the fork branches `main` and `linux-port`
-at commit `19b21e6`. It boots Astro Bot (PPSA21567 01.019.000) through Kyty's
-Vulkan stack, reaches the title, worldmap, intro and Crash Site tutorial, and
-held **51.5–53.8 FPS** over five 60 s windows. Audio is routed directly to the
-default sink with `--direct-audio`; the AudioOut2 queue stays at 53 ms with no
-dropped grains.
+The **working Linux native port** is on `linux-port`/`main` at `19b21e6`. It
+boots Astro Bot (PPSA21567 01.019.000) through Kyty's Vulkan stack, reaches the
+title, worldmap, intro and Crash Site tutorial, and held 51.5–53.8 FPS over five
+60 s windows. Audio is routed directly to the default sink with `--direct-audio`.
 
-The **FSR 4.1.2 WIP** is on fork branch `fsr4-wip` at `972847f` (provider
-staging/patch) and in the local Kyty tree on branch `fsr4-wip` at `d76a0641`.
-It is **not** in PR #23. The in-game image glitches a lot, so FSR4 stays
-opt-in/off by default until fixed.
+The **FSR 4.1.2 WIP** is on `fsr4-wip` and in the local Kyty tree. It is **not**
+in PR #23. The image is now **stable** in the title, cutscenes and Crash Site
+tutorial; two defects found during gameplay validation were fixed:
 
-## Active work: FSR4 hook
+1. The output image was never committed to Kyty's texture cache after
+   `ffxDispatch`. DLSS does `out.NoteContentWrite(); cache.CommitGpuWrite(out);`;
+   the FSR4 hook did not. Without it the cache could let stale/aliased bytes
+   reappear, which produced intermittent horizontal bands of noise.
+2. FSR4 history is now reset when the render size changes. The game's dynamic
+   resolution switches between 4K, 3328x1872, 2432x1368 and other sizes within
+   the same second.
 
-1. Provider built from
-   `/home/mitchell/Downloads/FidelityFX-SDK-2.4.0/FidelityFX-SDK-2.4.0-custom`
-   and staged in `Build/fsr4`; standalone `fsr4_provider_test` passes.
-2. Kyty hook in `Source/fsr4-wip/0001-wip-fsr4-hook.patch`; details in
-   `Source/fsr4-wip/README.md` and `Tools/fsr4/README.md`.
-3. The hook now skips intermediate/1:1 passes and dispatches once per frame for
-   `3328x1872 -> 3840x2160` (logs `FSR4: dispatch frame=…`), but the picture
-   still glitches.
+## FSR4 validation result
 
-### Next FSR4 actions
+- 20-frame screenshot sequences (including camera cuts) are clean; one FSR4
+  dispatch per upscaled frame; titles and Crash Site gameplay look correct.
+- Performance is **neutral**: 49–60 FPS in the Crash Site tutorial against
+  51.5–53.8 FPS without FSR4. The game upscales only 1.15–1.58x
+  (2432/3328 -> 4K), and frames rendered at native 4K skip the hook by design.
+- `ASTROHYBRID_FSR4_ALLOW_1TO1=1` makes every frame go through FSR4 (4K 1:1);
+  it is a diagnostic, not a performance mode.
+- `KYTY_GPU_TIMESTAMP_SCALE=200` was tried to force a lower dynamic resolution;
+  it did not stabilise the render size.
 
-- Try `ASTROHYBRID_FSR4_MV_SIGN=1` vs the default `-1`.
-- Try jitter sign/scale and `ASTROHYBRID_FSR4_PRE_EXPOSURE` (HDR).
-- Try `ASTROHYBRID_FSR4_NEAR`/`_FAR` / depth convention.
-- Verify the selected pass is the main scene upscale; check `state.color_count`,
-  history/aux targets, DCC/compression, and whether the raw FFX views are valid.
-- If it cannot be fixed, leave FSR4 off and document the negative result.
+## Decision pending
+
+- **Option A:** add a Kyty-side clamp/override that forces a fixed lower scene
+  render size (e.g. 1920x1080), so every frame upscales ~2x and FSR4 becomes a
+  real performance option. Then re-tune MV/jitter/depth/pre-exposure.
+- **Option B:** keep FSR4 as an off-by-default experiment, document the neutral
+  result, and leave it out of the Linux PR. (Current default.)
 
 ## Next FPS actions
 
@@ -68,7 +73,18 @@ FSR4_SDK_DIR="$HOME/Downloads/FidelityFX-SDK-2.4.0/FidelityFX-SDK-2.4.0-custom" 
 Tools/linux/prepare-kyty.sh patched
 git -C Tools/KytyPS5-jetsku apply "$PWD/Source/fsr4-wip/0001-wip-fsr4-hook.patch"
 Tools/linux/build-kyty.sh
+python3 Tools/linux/make-run-hybrid.py
 ASTROHYBRID_FSR4=1 Tools/linux/run.sh run --hybrid
+
+# FSR4 diagnostics
+ASTROHYBRID_FSR4=1 ASTROHYBRID_FSR4_PASSLOG=1 ASTROHYBRID_FPS_LOG=1 \
+  Tools/linux/run.sh run --hybrid
+ASTROHYBRID_FSR4=1 ASTROHYBRID_FSR4_ALLOW_1TO1=1 \
+  Tools/linux/run.sh run --hybrid
+
+# drive the menus/game without a pad (XWayland)
+SDL_VIDEODRIVER=x11 ASTROHYBRID_FSR4=1 Tools/linux/run.sh run --hybrid
+xdotool search --name "Source build" windowactivate %@ mousemove --window %@ 700 400 click 1 key j
 ```
 
 ## Warnings
@@ -79,19 +95,23 @@ ASTROHYBRID_FSR4=1 Tools/linux/run.sh run --hybrid
   without `ASTROHYBRID_FSR4=1`; the default path is unchanged.
 - Do not commit the extracted FSR4 assets, provider `.so`s, game dump, or logs.
 - Provider is GPL-3.0-only; keep it a separate optional library.
-- Input has not been tested hands-on; the game auto-advances with the Steam
-  Controller. No DLSS/Frame Generation/Reflex on Linux.
+- Input has not been tested hands-on; the keyboard route above drives menus, but
+  the Steam Controller/gameplay pass is still pending.
+- Screenshots under XWayland: use `spectacle -b -n -a -o file.png` (ffmpeg
+  x11grab captures black for the Vulkan window).
 
 ## Recent completions
 
-- Forked/renamed `mitch030504/pcportastrobot-linux`; PR #23 draft.
-- AnyPS5 PR #19825 (APR staging) and Kyty PR #124 (`x86intrin.h`).
-- Stock AnyPS5 and hybrid Linux builds; 50 FPS gameplay.
-- Audio direct routing (`route-audio.py`, `--direct-audio`, GUI option).
-- Per-second FPS telemetry (`ASTROHYBRID_FPS_LOG=1`).
-- FSR4 provider build + WIP hook + patch branch.
+- FSR4 gameplay validation; fixed the missing texture-cache commit and the
+  size-change history reset; image now stable.
+- Recorded the neutral performance result and the 1.15–1.58x upscale cause.
+- Repo commit `d15aabe` on `fsr4-wip`; Kyty tree `4f499e0e`.
 
 ## Evidence
 
-`Logs/run-audio-long-audeze.log`, `Logs/run-fpslog.log`, `Logs/run-fsr4*.log`,
-`Logs/fsr4*.png`, `Logs/long-audeze-*.png`, `Logs/hybrid-*.png`.
+- `Logs/run-fsr4-final.log` — final build, Crash Site at 49–60 FPS, clean.
+- `Logs/run-fsr4-gpuwrite.log` — 20 clean frames after the cache fix.
+- `Logs/run-fsr4-x11.log`, `Logs/run-fsr4-game.log` — default-mode gameplay.
+- `Logs/run-fsr4-1to1.log` (and `all-1.png`) — the one band-corrupted frame
+  that led to the cache fix.
+- `Logs/run-fsr4-passlog2.log` — per-frame pass sequence (dynamic resolution).
