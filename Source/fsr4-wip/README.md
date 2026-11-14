@@ -43,6 +43,31 @@ is skipped by design, so the display alternates between FSR4 and the game's own
 1:1 path; the images are individually clean, but FSR4 is not consistently in
 the path.
 
+## Fixed-1080p attempt (2026-11-14 10:36)
+
+`Source/game-patches/fixed_1080p.toml` (Windows) pins the dynamic-resolution
+controller to level 0 (1920x1080). The Linux relinked `AstroBot` carries the same
+code and the patch was applied there, but it does **not** change the input of
+the final upscale pass:
+
+- The controller instruction (`add r14d, [rbx+8]` / `mov [rbx+0xc], r14d`) is at
+  file offset `0x73E9AB1` (VA `0x77E5AB1`); patching it to `xor r14d, r14d`
+  leaves the final pass at `3328x1872 -> 3840x2160`.
+- Setting both documented controller fields, resolution index `+0x0c` and level
+  `+0x28`, to 0 (and returning through the normal epilogue) also leaves the pass
+  at 3328.
+- The level→size table is at VA `0x88849c0` (heights) / `0x88849d4` (widths),
+  used once at `0x6a754c`; forcing that index to 0 also leaves the pass at 3328.
+
+Conclusion: the dynamic-resolution level drives an **earlier** stage of the
+game's staged upscale chain, not the final `3328 -> 3840` pass. The final pass's
+input is a fixed late intermediate, which is why FSR4 is only a 1.15x upscale.
+Making FSR4 a real upscaler needs the hook to replace the first stage (the
+`1920x1080 -> 2432x1368` pass seen at boot) or to feed the 1080 scene image into
+the final pass. Both are renderer changes beyond this WIP.
+
+The runtime was restored to the clean relinked ELF after the tests.
+
 ## Env switches
 
 - `ASTROHYBRID_FSR4=1` — enable the hook.

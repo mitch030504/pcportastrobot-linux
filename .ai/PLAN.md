@@ -9,11 +9,11 @@
   - reset FSR4 history when the render size changes (the game's dynamic resolution switches every few frames).
 - [x] Validate in the Crash Site tutorial: 20-frame sequences (including camera cuts) clean; one dispatch per upscaled frame; 49-60 FPS.
 - [x] Document the neutral performance result: the game upscales only 1.15-1.58x (2432/3328 -> 4K), and native-4K frames skip FSR4, so there is little to win.
-- [ ] Decide next:
-  - Option A: force a fixed lower internal render size (e.g. 1920x1080) so every frame upscales ~2x and FSR4 becomes a real performance option. This is a Kyty-side render-target clamp, bigger than the hook.
-  - Option B: ship the hook as an off-by-default experiment, document it, and leave the Linux PR FSR4-free.
-- [ ] If a fixed render scale lands: re-tune MV sign / jitter / depth / pre-exposure at the new ratio.
-- [ ] Avalonia Graphics page toggle only if Option A lands or the user wants an experimental switch.
+- [x] Option A attempted: apply `Source/game-patches/fixed_1080p.toml` to the Linux relinked ELF and force the documented controller fields/table index to level 0. Result: the final pass stays `3328x1872 -> 3840x2160`; the dynamic-resolution level drives an earlier stage of the game's staged upscale chain, not the final pass.
+- [ ] Option A2 (pending): replace the first upscale stage (`1920x1080 -> 2432x1368`) or feed the 1080 scene image into the final pass, so FSR4 gets a 2x+ input. This is a renderer change beyond the current hook.
+- [ ] Option B (fallback): keep FSR4 off by default, document the neutral result, leave the Linux PR FSR4-free.
+- [ ] If A2 lands: re-tune MV sign / jitter / depth / pre-exposure at the new ratio.
+- [ ] Avalonia Graphics page toggle only if A2 lands or the user wants an experimental switch.
 
 ## Open: frame-rate drops
 

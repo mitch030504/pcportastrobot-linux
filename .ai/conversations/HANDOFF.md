@@ -45,9 +45,14 @@ tutorial; two defects found during gameplay validation were fixed:
 
 ## Decision pending
 
-- **Option A:** add a Kyty-side clamp/override that forces a fixed lower scene
-  render size (e.g. 1920x1080), so every frame upscales ~2x and FSR4 becomes a
-  real performance option. Then re-tune MV/jitter/depth/pre-exposure.
+- **Option A** was attempted (2026-11-14 10:36): the Windows `fixed_1080p`
+  controller patch, forcing both controller fields (+0x0c index, +0x28 level),
+  and forcing the level→size table index all leave the final pass at
+  `3328x1872 -> 3840x2160`. The dynamic-resolution level drives an **earlier**
+  stage of the game's staged upscale chain, not the final pass.
+- **Option A2:** replace the first upscale stage (`1920x1080 -> 2432x1368`) or
+  feed the 1080 scene image into the final pass, so FSR4 gets a 2x+ input. This
+  is a renderer change beyond the current hook.
 - **Option B:** keep FSR4 as an off-by-default experiment, document the neutral
   result, and leave it out of the Linux PR. (Current default.)
 
